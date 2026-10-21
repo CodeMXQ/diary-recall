@@ -38,6 +38,39 @@ if (!fs.existsSync(VEC_FILE)) {
   process.exit(1);
 }
 
+// ---------- 索引过期检查 ----------
+// 手动改过日记的人最容易踩的坑：文件变了，索引还是旧的，搜什么都搜不到。
+// 默认自动重建，可以用 --no-auto 关掉。
+const autoReindex = cfg.autoReindex !== false && !flags.includes('--no-auto');
+
+function newestSourceMtime() {
+  let newest = 0;
+  for (const s of cfg.sources || []) {
+    try {
+      const m = fs.statSync(s.file).mtimeMs;
+      if (m > newest) newest = m;
+    } catch {
+      // 文件不在就跳过，index.mjs 会报
+    }
+  }
+  return newest;
+}
+
+const vecMtime = fs.statSync(VEC_FILE).mtimeMs;
+const srcMtime = newestSourceMtime();
+
+if (srcMtime > vecMtime) {
+  if (autoReindex) {
+    console.log('检测到源文件比索引新，正在重建索引…');
+    const { execFileSync } = await import('node:child_process');
+    execFileSync(process.execPath, [path.join(ROOT_DIR, 'index.mjs')], { stdio: 'inherit' });
+    console.log('');
+  } else {
+    console.log('⚠️  索引比源文件旧，结果可能不全。跑一下：node index.mjs');
+    console.log('');
+  }
+}
+
 // ---------- 分词：有词表就用 jieba，没有退回二字 ----------
 const dictFile = path.resolve(ROOT_DIR, cfg.dictPath || 'data/jieba-dict.txt');
 if (fs.existsSync(dictFile)) {
