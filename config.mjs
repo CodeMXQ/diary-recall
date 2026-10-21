@@ -17,14 +17,15 @@ export function expandHome(p) {
 
 /**
  * 读 config.json，缺失字段用默认值。
- * dataDir 和 sources 里的相对路径都相对仓库根目录。
+ * 相对路径一律相对仓库根目录。
  */
 export function loadConfig(overrides = {}) {
   const file = path.join(ROOT, 'config.json');
   let user = {};
   if (fs.existsSync(file)) {
     try {
-      user = JSON.parse(fs.readFileSync(file, 'utf8'));
+      // 去掉 BOM：Windows 记事本和 PowerShell 都可能加
+      user = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     } catch (e) {
       throw new Error('config.json 解析失败：' + e.message);
     }
@@ -35,8 +36,14 @@ export function loadConfig(overrides = {}) {
     diary: { public: '', private: '' },
     model: 'Xenova/bge-large-zh-v1.5',
     queryPrefix: '为这个句子生成表示以用于检索相关文章：',
+    dictPath: 'data/jieba-dict.txt',
     dataDir: './data',
     maxChars: 400,
+    // 时间衰减：越新加分越多，最多加 decayWeight
+    decayWeight: 0.15,
+    halfLifeDays: 30,
+    // [重要] 标记的加权
+    importantWeight: 0.25,
     ...user,
     ...overrides,
   };

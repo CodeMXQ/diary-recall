@@ -1,15 +1,17 @@
 /**
- * 查记忆：向量 + BM25 混合检索（RRF 融合）。
+ * 查记忆：向量 + BM25（jieba 分词）+ 时间衰减 + 重要标记。
  *
  * 用法：
  *   node recall.mjs "要查的事"
  *   node recall.mjs "某个决定是怎么定的" --top=3
  *   node recall.mjs "夜班" --tag=日记 --full
+ *   node recall.mjs "旧事" --no-decay
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline, env } from '@xenova/transformers';
-import { loadConfig } from './config.mjs';
+import { loadConfig, ROOT_DIR } from './config.mjs';
+import { loadDict, tokenize } from './tokenize.mjs';
 
 const cfg = loadConfig();
 const VEC_FILE = path.join(cfg.dataDir, 'vectors.json');
@@ -25,9 +27,10 @@ const opt = (name, fallback) => {
 const topK = Number(opt('top', '5')) || 5;
 const tagFilter = opt('tag', '');
 const showFull = flags.includes('--full');
+const noDecay = flags.includes('--no-decay');
 
 if (!query) {
-  console.log('用法: node recall.mjs "要查的事" [--top=5] [--tag=日记] [--full]');
+  console.log('用法: node recall.mjs "要查的事" [--top=5] [--tag=日记] [--full] [--no-decay]');
   process.exit(1);
 }
 if (!fs.existsSync(VEC_FILE)) {
@@ -35,20 +38,18 @@ if (!fs.existsSync(VEC_FILE)) {
   process.exit(1);
 }
 
+// ---------- 分词：有词表就用 jieba，没有退回二字 ----------
+const dictFile = path.resolve(ROOT_DIR, cfg.dictPath || 'data/jieba-dict.txt');
+if (fs.existsSync(dictFile)) {
+  loadDict(dictFile);
+}
+
 const data = JSON.parse(fs.readFileSync(VEC_FILE, 'utf8'));
 const docs = data.segments;
 const N = docs.length;
 
-// ---------- BM25：中文按二字切分 ----------
-function bigrams(text) {
-  const clean = String(text).toLowerCase().replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
-  const out = [];
-  for (let i = 0; i < clean.length - 1; i++) out.push(clean.slice(i, i + 2));
-  if (!out.length && clean) out.push(clean);
-  return out;
-}
-
-const docTerms = docs.map((d) => bigrams(d.text));
+// ---------- BM25 ----------
+const docTerms = docs.map((d) => tokenize(d.text));
 const avgLen = docTerms.reduce((a, t) => a + t.length, 0) / N || 1;
 const df = new Map();
 for (const terms of docTerms) {
@@ -59,7 +60,7 @@ const K1 = 1.5;
 const B = 0.75;
 
 function bm25(queryText) {
-  const qTerms = bigrams(queryText);
+  const qTerms = tokenize(queryText);
   return docTerms.map((terms) => {
     const tf = new Map();
     for (const t of terms) tf.set(t, (tf.get(t) || 0) + 1);
@@ -103,6 +104,26 @@ const fused = new Array(N).fill(0);
 vecOrder.forEach((idx, rank) => { fused[idx] += 1 / (RRF_K + rank + 1); });
 bmOrder.forEach((idx, rank) => { fused[idx] += 1 / (RRF_K + rank + 1); });
 
+// ---------- 时间 + 重要度微调 ----------
+const decayWeight = Number(cfg.decayWeight ?? 0.15);
+const halfLifeDays = Number(cfg.halfLifeDays ?? 30);
+const importantWeight = Number(cfg.importantWeight ?? 0.25);
+const now = Date.now();
+
+function timeFactor(seg) {
+  if (noDecay || !seg.date) return 0;
+  const t = new Date(seg.date + 'T00:00:00').getTime();
+  if (Number.isNaN(t)) return 0;
+  const ageDays = Math.max(0, (now - t) / 86400000);
+  return Math.pow(0.5, ageDays / halfLifeDays);
+}
+
+const final = fused.map((base, i) => {
+  let score = base * (1 + decayWeight * timeFactor(docs[i]));
+  if (docs[i].important) score *= 1 + importantWeight;
+  return score;
+});
+
 // ---------- 过滤 + 输出 ----------
 let pool = docs.map((_, i) => i);
 if (tagFilter) {
@@ -110,7 +131,7 @@ if (tagFilter) {
   if (kept.length) pool = kept;
   else console.log(`（没有 tag=${tagFilter} 的内容，忽略该过滤）\n`);
 }
-pool.sort((a, b) => fused[b] - fused[a]);
+pool.sort((a, b) => final[b] - final[a]);
 
 console.log(`查询：${query}`);
 console.log(`命中 ${pool.length} 段中的前 ${Math.min(topK, pool.length)}：`);
@@ -118,8 +139,12 @@ console.log(`命中 ${pool.length} 段中的前 ${Math.min(topK, pool.length)}�
 for (const i of pool.slice(0, topK)) {
   const d = docs[i];
   const where = [d.source, d.section].filter(Boolean).join(' / ');
-  console.log(`\n───── [${d.tag}] ${where}`);
-  console.log(`      向量 ${cosScores[i].toFixed(3)}   BM25 ${bmScores[i].toFixed(1)}`);
+  const marks = [];
+  if (d.date) marks.push(d.date);
+  if (d.important) marks.push('重要');
+  const tag = marks.length ? ` (${marks.join(' · ')})` : '';
+  console.log(`\n───── [${d.tag}] ${where}${tag}`);
+  console.log(`      向量 ${cosScores[i].toFixed(3)}   BM25 ${bmScores[i].toFixed(1)}   最终 ${final[i].toFixed(4)}`);
   const body = showFull ? d.text : d.text.length > 180 ? d.text.slice(0, 180) + '…' : d.text;
   console.log(body);
 }

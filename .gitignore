@@ -1,5 +1,7 @@
 node_modules/
-data/
+data/models/
+data/vectors.json
 config.json
+notes/
 *.log
 .DS_Store

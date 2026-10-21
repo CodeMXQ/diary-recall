@@ -1,4 +1,4 @@
-# fish-memory
+# diary-recall
 
 把日记做成**可语义检索**的记忆。纯本地，离线可用。
 
@@ -13,14 +13,29 @@ AI 每次开新会话都是白纸。手写规则文件越写越长，每轮都�
 
 查的时候不用记得原话，问意思就行。
 
+## 和别的记忆方案有什么不同
+
+| | 别人（如 dsh-fish-memory） | 这里 |
+|---|---|---|
+| 谁决定记什么 | 插件自动判断 | **写的人决定**（人或者 AI 主动写） |
+| 存成什么 | 私有 JSON | **普通 markdown，记事本就能改** |
+| 检索 | 分词 + 权重 | **向量 + BM25 双路** |
+| 位置 | 藏在插件目录 | **你自己的文件夹** |
+
+一句话：**一个是黑盒，一个是白盒。**
+
 ## 快速开始
 
 ```bash
+git clone <repo>
+cd diary-recall
 npm install
-cp config.example.json config.json    # 改成本机路径
-node index.mjs                        # 第一次会下载模型（约 1.3GB）
-node recall.mjs "以前那件事是怎么解决的"
+cp config.example.json config.json
+node index.mjs        # 第一次会下载模型，约 1.3GB
+node recall.mjs "示例日记里说了什么"
 ```
+
+**开箱用的是仓库自带的示例日记**，先跑通再改成自己的。
 
 ## 三个命令
 
@@ -35,6 +50,7 @@ node recall.mjs "以前那件事是怎么解决的"
 ```
 node recall.mjs "某个决定是怎么定的" --top=3
 node recall.mjs "夜班" --tag=日记 --full
+node recall.mjs "很久以前的事" --no-decay
 ```
 
 ## 配置
@@ -44,42 +60,84 @@ node recall.mjs "夜班" --tag=日记 --full
 ```json
 {
   "sources": [
-    { "file": "~/.dsh/whale-diary.md", "tag": "日记" },
-    { "file": "~/.dsh/AGENTS.md", "tag": "人设" }
+    { "file": "~/notes/diary.md", "tag": "日记" },
+    { "file": "~/notes/profile.md", "tag": "人设" }
   ],
   "diary": {
-    "public": "~/.dsh/whale-diary.md",
-    "private": "~/.dsh/whale-diary-private.md"
+    "public": "~/notes/diary.md",
+    "private": "~/notes/diary-private.md"
   },
   "model": "Xenova/bge-large-zh-v1.5",
   "dataDir": "./data",
-  "maxChars": 400
+  "maxChars": 400,
+  "decayWeight": 0.15,
+  "halfLifeDays": 30,
+  "importantWeight": 0.25
 }
 ```
 
-`~` 会展开成用户主目录。`dataDir` 里存模型缓存和索引。
+`~` 展开成用户主目录，相对路径相对仓库根目录。
 
-## 切段规则
+| 字段 | 作用 |
+|---|---|
+| `sources` | 要索引的 markdown 文件，`tag` 是分组名 |
+| `diary` | `diary-add.mjs` 往哪写 |
+| `model` | `bge-small-zh-v1.5`（512 维，快）或 `bge-large-zh-v1.5`（1024 维，准） |
+| `maxChars` | 单段上限，超过按句号切 |
+| `decayWeight` | 时间衰减权重，0 关闭 |
+| `halfLifeDays` | 多久新近度减半 |
+| `importantWeight` | `[重要]` 标记的加权 |
 
-不是按句子切，是按**语义块**切：
+## 写日记的格式
+
+不用学新语法，普通 markdown 就行：
+
+```markdown
+## 看过的
+
+| 时间 | 标题 | 想法 |
+|---|---|---|
+| 2026-10-20 12:41 | 某个视频 | 看完的想法 |
+
+## 想说的
+
+- 一条一条写，空行分段，每段是一个独立记忆。
+
+## [重要] 这个别忘
+
+打了 [重要] 标记的条目，检索时会加权。
+```
+
+**切段规则**：
 
 - 按 markdown 标题分块，记下所属小节
 - **表格的每一行单独成段**（一行 = 一条独立记忆）
 - 其余按空行分段
 - 太短的并到上一段，太长的按句号切开
 
+**自动识别的两样东西**：
+
+- **日期**：段里出现 `2026-10-20` 这类就会被记下来，用于时间衰减
+- **重要**：`[重要]` / `【重要】` 会被标记，检索时加权
+
 ## 原理
 
 ```
-查询 → 加 bge 前缀 → 向量（1024 维）
-     ↘ 二字切分 → BM25
+查询 → 加 bge 前缀 → 向量（512 或 1024 维）
+     ↘ jieba 分词 → BM25
         ↓
      RRF 融合（两路各取排名，1/(60+rank) 相加）
+        ↓
+     时间衰减 + 重要度微调
         ↓
      top-k
 ```
 
-**为什么两路**：纯向量对专有名词不敏感，纯关键词对同义改写不敏感，合起来才稳。
+**为什么要双路**：纯向量对专有名词不敏感，纯关键词对同义改写不敏感，合起来才稳。
+
+**为什么用 jieba 词表**：二字切分会把「车站」拆成「车」+「站」，搜「车」的时候全撞进来。用词表就没这个问题。
+
+**时间衰减干什么**：算的是「新近度」，不是「重要性」。问旧事时它影响很小，因为向量/BM25 的基础分差距更大。
 
 ## 踩过的坑
 
@@ -113,26 +171,44 @@ BroadcastIterator::Append axis == 1 || axis == largest was false
 
 **这是换 large 唯一的理由。**
 
-### 4. `silenceremove` 会切掉中间的静音
+### 4. Windows 的 UTF-8 BOM
 
-录完音去静音时，`stop_periods=1` 遇到第一段停顿就当结尾了。只想去头尾的话，用 `-ss` / `-t` 手动切。
+记事本和 PowerShell 保存 UTF-8 都会带 BOM，`JSON.parse` 直接炸：
+
+```
+Unexpected token '﻿'
+```
+
+代码里已经把 BOM 去掉了。
+
+### 5. `silenceremove` 会切掉中间的静音
+
+（跟本工具无关，但同一个作者踩过的坑）
+
+录音去静音时，`stop_periods=1` 遇到第一段停顿就当结尾了。只想去头尾的话，用 `-ss` / `-t` 手动切。
 
 ## 成本
 
 | 项 | 数字 |
 |---|---|
-| 模型 | 约 1.3 GB（一次性下载，之后离线） |
-| 索引 | 290 段约 2.7 MB |
-| 建索引 | 三到五分钟（large 慢） |
+| 模型 | 约 1.3 GB（`large`）/ 约 130 MB（`small`），一次性 |
+| 词表 | 1.5 MB（已附在仓库） |
+| 索引 | 100 段约 1 MB，1000 段约 10 MB |
+| 建索引 | large 约 15 段/秒 |
 | 单次查询 | 几秒（含模型加载） |
-| 网络 | **零** |
+| 网络 | **零**（装完模型之后） |
 
 ## 限制
 
-- 索引是**全量重建**，日记很大以后要改增量
+- 索引是**全量重建**，日记很大（几万段）以后要改增量
 - 只索引 markdown
 - 查询要现加载模型，没做常驻服务
-- small 模型快但语义弱，large 反过来
+- 时间衰减只认文本里的日期，不认文件修改时间
+
+## 词表来源
+
+`data/jieba-dict.txt` 来自 [jieba](https://github.com/fxsjy/jieba) 的 `extra_dict/dict.txt.small`，
+MIT 协议，只保留了词条本身，去掉了词频和词性两列。
 
 ## License
 

@@ -7,7 +7,9 @@
  *   - 其余按空行分段
  *   - 太短的并到上一段，太长的按句号切开
  *
- * 第一次运行会下载模型，之后离线可用。
+ * 同时从每段里抽出：
+ *   - date      这一条是什么时候的事（给时间衰减用）
+ *   - important 有没有 [重要] 标记（检索时加权）
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,6 +22,17 @@ const MIN_LEN = 12;
 
 env.cacheDir = path.join(cfg.dataDir, 'models');
 
+const DATE_RE = /(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})/;
+const IMPORTANT_RE = /\[重要\]|【重要】|\[!\]/;
+
+function extractDate(text) {
+  const m = text.match(DATE_RE);
+  if (!m) return null;
+  const mo = String(m[2]).padStart(2, '0');
+  const d = String(m[3]).padStart(2, '0');
+  return `${m[1]}-${mo}-${d}`;
+}
+
 /** 把一份 markdown 切成记忆片段。 */
 function segment(text, source, maxChars) {
   const lines = text.split(/\r?\n/);
@@ -27,11 +40,28 @@ function segment(text, source, maxChars) {
   let buffer = [];
   let section = '';
 
+  const emit = (body) => {
+    const t = body.trim();
+    if (!t) return;
+    segments.push({
+      source: path.basename(source.file),
+      tag: source.tag,
+      section,
+      text: t,
+      date: extractDate(t),
+      important: IMPORTANT_RE.test(t),
+    });
+  };
+
   const push = (body) => {
     const t = body.trim();
     if (!t) return;
+    // 太短的并进上一段，尽量保住上下文
     if (t.length < MIN_LEN && segments.length) {
-      segments[segments.length - 1].text += '\n' + t;
+      const prev = segments[segments.length - 1];
+      prev.text += '\n' + t;
+      prev.important = prev.important || IMPORTANT_RE.test(t);
+      prev.date = prev.date || extractDate(t);
       return;
     }
     if (t.length > maxChars) {
@@ -39,16 +69,16 @@ function segment(text, source, maxChars) {
       let chunk = '';
       for (const part of parts) {
         if ((chunk + part).length > maxChars && chunk) {
-          segments.push({ source: path.basename(source.file), tag: source.tag, section, text: chunk.trim() });
+          emit(chunk);
           chunk = part;
         } else {
           chunk += part;
         }
       }
-      if (chunk.trim()) segments.push({ source: path.basename(source.file), tag: source.tag, section, text: chunk.trim() });
+      if (chunk.trim()) emit(chunk);
       return;
     }
-    segments.push({ source: path.basename(source.file), tag: source.tag, section, text: t });
+    emit(t);
   };
 
   const flush = () => {
@@ -100,7 +130,12 @@ async function main() {
     }
     const text = fs.readFileSync(src.file, 'utf8');
     const segs = segment(text, src, cfg.maxChars);
-    console.log(`${String(src.tag).padEnd(6)} ${path.basename(src.file).padEnd(28)} ${segs.length} 段`);
+    const dated = segs.filter((s) => s.date).length;
+    const important = segs.filter((s) => s.important).length;
+    console.log(
+      `${String(src.tag).padEnd(6)} ${path.basename(src.file).padEnd(28)} ${String(segs.length).padStart(4)} 段` +
+        `  (带日期 ${dated}, 重要 ${important})`
+    );
     all.push(...segs);
   }
 

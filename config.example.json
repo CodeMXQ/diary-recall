@@ -1,16 +1,18 @@
 {
-  "$comment": "复制成 config.json 再改。路径支持 ~ 表示用户主目录。",
+  "$comment": "复制成 config.json 再改。路径支持 ~ 表示用户主目录，相对路径相对仓库根目录。",
   "sources": [
-    { "file": "~/.dsh/whale-diary.md", "tag": "日记" },
-    { "file": "~/.dsh/whale-diary-private.md", "tag": "私日记" },
-    { "file": "~/.dsh/AGENTS.md", "tag": "人设" }
+    { "file": "./examples/diary-sample.md", "tag": "示例" }
   ],
   "diary": {
-    "public": "~/.dsh/whale-diary.md",
-    "private": "~/.dsh/whale-diary-private.md"
+    "public": "./notes/diary.md",
+    "private": "./notes/diary-private.md"
   },
   "model": "Xenova/bge-large-zh-v1.5",
   "queryPrefix": "为这个句子生成表示以用于检索相关文章：",
+  "dictPath": "data/jieba-dict.txt",
   "dataDir": "./data",
-  "maxChars": 400
+  "maxChars": 400,
+  "decayWeight": 0.15,
+  "halfLifeDays": 30,
+  "importantWeight": 0.25
 }
