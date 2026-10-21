@@ -34,9 +34,27 @@ AI 每次开新会话都是白纸。手写规则文件越写越长，每轮都�
 
 ## 快速开始
 
+### 一键安装（推荐）
+
 ```bash
-git clone <repo>
+git clone https://github.com/CodeMXQ/diary-recall
 cd diary-recall
+node install.mjs --diary ~/notes/diary.md
+```
+
+它会：检查 Node 版本 → 装依赖 → 生成配置 → 建索引 → **打印一段可以直接贴进 `AGENTS.md` 的话**（路径已填好）→ 跑一次验证。
+
+**日记文件不存在会帮你建一个空的。**
+
+模型想用小一点（130MB 而不是 1.3GB）：
+
+```bash
+node install.mjs --diary ~/notes/diary.md --model small
+```
+
+### 手动装
+
+```bash
 npm install
 cp config.example.json config.json
 node index.mjs        # 第一次会下载模型，约 1.3GB
