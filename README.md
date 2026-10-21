@@ -77,6 +77,33 @@ node recall.mjs "示例日记里说了什么"
 
 **开箱用的是仓库自带的示例日记**，先跑通再改成自己的。
 
+### clone 卡住不动？
+
+**大概率不是仓库大**（整个仓库才 1 MB 出头），是 **git 不走系统代理**。
+
+浏览器能打开 GitHub，不代表 `git` 也能——它俩读代理的方式不一样。
+
+如果你有代理，给它单独配一次：
+
+```bash
+git config --global http.proxy  http://127.0.0.1:你的端口
+git config --global https.proxy http://127.0.0.1:你的端口
+```
+
+不知道端口是多少？看你代理软件的系统代理设置，或者：
+
+```bash
+# Windows
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer
+```
+
+**配完记得梯子关掉时要撤销**，不然 git 会一直往那个端口上撞：
+
+```bash
+git config --global --unset http.proxy
+git config --global --unset https.proxy
+```
+
 ## 三个命令
 
 | 命令 | 干什么 |
