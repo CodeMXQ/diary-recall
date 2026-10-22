@@ -1,5 +1,7 @@
 # diary-recall
 
+![diary-recall](assets/cover.jpg)
+
 把日记做成**可语义检索**的记忆。纯本地，离线可用。
 
 ## 它解决什么
@@ -60,7 +62,7 @@ node install.mjs --diary ~/notes/diary.md
 
 **日记文件不存在会帮你建一个空的。**
 
-模型想用小一点（130MB 而不是 1.3GB）：
+模型想用小一点（23MB 而不是 313MB）：
 
 ```bash
 node install.mjs --diary ~/notes/diary.md --model small
@@ -71,7 +73,7 @@ node install.mjs --diary ~/notes/diary.md --model small
 ```bash
 npm install
 cp config.example.json config.json
-node index.mjs        # 第一次会下载模型，约 1.3GB
+node index.mjs        # 第一次会下载模型，约 313MB
 node recall.mjs "示例日记里说了什么"
 ```
 
@@ -260,7 +262,7 @@ Unexpected token '﻿'
 
 | 项 | 数字 |
 |---|---|
-| 模型 | 约 1.3 GB（`large`）/ 约 130 MB（`small`），一次性 |
+| 模型 | 约 313 MB（`large`）/ 约 23 MB（`small`），一次性 |
 | 词表 | 1.5 MB（已附在仓库） |
 | 索引 | 100 段约 1 MB，1000 段约 10 MB |
 | 首次建索引 | large 约 15 段/秒 |
