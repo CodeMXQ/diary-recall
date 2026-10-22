@@ -1,5 +1,5 @@
 {
-  "name": "fish-memory",
+  "name": "diary-recall",
   "version": "0.1.0",
   "description": "本地日记向量检索：bge-large-zh + BM25 双路融合，离线可用",
   "type": "module",

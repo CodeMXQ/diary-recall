@@ -5,3 +5,6 @@ config.json
 notes/
 *.log
 .DS_Store
+
+# 视频工程（渲染帧 + 字体，很大，不进仓库）
+video/
